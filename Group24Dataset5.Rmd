@@ -1,0 +1,257 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Abstract
+Fundamental analysis is an important tool for investors looking for opportunities to invest in the stock market. It is also a useful tool for management who can use it as a tool to identify areas to focus on in order to generate value for shareholders. Changes in fundamentals from one year to another reflect in the stock price changes over the same period of time. Linear regression is shown to be a sufficient model for evaluating the significance of changes in fundamentals on the stock price. Apart from the company’s fundamentals that are updated periodically, the sector within which a company operates also provides relevant information on the effects of external forces that impact on the stock price. Management can use fundamental analysis to facilitate decision making in-line with maximizing shareholder value.
+
+# Introduction
+Stock markets provide an opportunity for investors to own a proportion of a company and earn returns in the form of dividends and capital growth. The number of stock exchanges and companies listed has grown over the years making stocks one of the most common investment choices for both individual and institutional investors. One of the biggest challenges for investors is identifying the right stocks to buy in order to achieve their financial goals. Stock prices are often a reflection of the sentiments investors have about the underling business. Positive sentiments often drive the stock price in a positive direction while negative sentiments result in drops in the stock. 
+
+There are many factors that influence how the market views a company. Fundamental analysis looks at different measures within a company to provide a picture of its health. Companies trading on public exchanges are required to make disclosures on their business activities. These include records of the company’s performance in a reporting period (often a year) and the overall position of the company as at a given time. The reports provide investors with a view of the company’s cash flows, investments, financing, ownership structure, management among others. 
+
+The goal of this analysis is to evaluate the relationship between the different records of activities within a company and the changes in stock prices over a given period of time. The analysis evaluates the hypothesis that changes in the level of business activities such as sales, profitability, financing and investment from one period to another have a linear relationship with the change in the company's stock price during the same period. The assumption therefore, is that increasing levels of assets and business activities such as sales and investment would reflect positively on the company leading to increased stock prices while increasing liabilities in a given period would lead to a reduction in stock price. The analysis also checks whether there is a difference between the change in stock prices for companies in different sectors. This is because there are many other factors external to a business that influence its operations. These may include the regulatory environment, competition, extreme natural and economic events among others. Such factors often have a similar effect on companies operating within the same industry. A significant difference in the change in stock prices between different sectors would give way for us to evaluate whether a linear relationship is significant by including it as one of the predictors in the regression model for change in stock prices.
+
+# Data description
+
+```{r, echo=FALSE, results ='hide', cache=TRUE}
+fundamentals = read.csv("fundamentals.csv")
+prices_adjusted = read.csv("prices-split-adjusted.csv")
+securities = read.csv("securities.csv")
+```
+Data on the fundamentals of 448 stocks and daily closing prices for 501 stocks are available in different datasets. The data are imported as *fundamentals* and *price_adjusted* respectively. A record on the sector in which 505 companies operate is also available in a different dataset imported as *securities*. The fundamentals and securities datasets are merged appropriately based on the stocks for which both the records are available. 
+
+```{r, echo=FALSE, results ='hide', cache=TRUE}
+# combine fundamentals and securities datasets
+fund_sec = merge.data.frame(fundamentals,securities, by.x = "Ticker.Symbol", by.y = "Ticker.symbol")
+```
+
+From the prices dataset, the adjusted daily closing prices are used to obtain the annual change in stock price. This is the price adjusted for stock splits. The annual return is obtained from the following formula:
+
+$$Annual\ Return \ =\   ({Closing\ Price\ at\ The\ End\ of\ the\ Year}/ {Closing\ Price\ at\ The\ End\ of\ the\ Year} $$
+NOTE: Before proceeding with the analysis, an additional observation is added to the data. The dataset currently has 1781 observations with 86 features. The new observation has the values for each of the continuous features to the mean of the respective features. For example Common.Stocks is the average common stock for the 1781 observations and the same is done for all the continuous data. The observation is assigned the GICS.Sector, "Consumer Staples" which is the most dominant sector in the dataset. The GICS sub sector is chosen randomly as "Agricultural Products" from the consumer staples sector. The new observation is assigned an arbitrarily chosen value in remaining columns with categorical variables. The value is chosen from the records already present in the respective columns. The new observations are assigned to a stock name "New observation" with the symbol "NEW". The result is now a dataset with 1782 observations.The new observation "NEW" is also added to the stock prices data as a single point with prices being the average price in the respective columns.
+
+```{r, echo=FALSE, cache=TRUE, results='hide'}
+require(dplyr)
+# add new data point to the features
+new_point = colMeans(fund_sec[, -c(1,2,3,80,81,82,83,84,85)])
+
+fund_sec[1782, -c(1,2,3,80,81,82,83,84,85)] = new_point
+fund_sec[1782, ]$GICS.Sector = "Consumer Staples"
+
+fund_sec[1782, ]$Ticker.Symbol =  "NEW"
+fund_sec[1782, ]$Period.Ending = unique(fund_sec[1782, ]$Period.Ending)[3]
+fund_sec[1782, ]$Security = "New observation"
+fund_sec[1782, ]$Date.first.added = unique(fund_sec[1782, ]$Date.first.added)[3]
+fund_sec$Address.of.Headquarters = unique(fund_sec[1782, ]$Address.of.Headquarters)[3]
+
+# add returns for the new observations equal to the average return of all the stocks present
+prices_adjusted[851265,c(3,4,5,6,7)] = colMeans(prices_adjusted[,c(3,4,5,6,7)])
+prices_adjusted[851265, ]$symbol = "NEW"
+```
+
+```{r, echo=FALSE, results ='hide', cache=TRUE}
+# select year in the date column
+
+require(lubridate)
+fund_sec$Period.Ending = ymd(fund_sec$Period.Ending)
+fund_sec$year = year(fund_sec$Period.Ending)
+
+# we want to predict annual returns. 
+
+# get starting and ending adjusted closing price for each year from the prices_adjusted data set
+library(dplyr)
+str(prices_adjusted)
+
+prices_adjusted$date = ymd(prices_adjusted$date)
+prices_adjusted$year = year(prices_adjusted$date)
+
+first_annual_close_price = aggregate(close ~ symbol + year, prices_adjusted, first)
+last_annual_close_price = aggregate(close ~ symbol + year, prices_adjusted, last)
+
+# get the annual return for each stock by dividing closing at end of year by closing price at the beginning of the year
+
+returns = last_annual_close_price$close/first_annual_close_price$close
+# merge returns with symbol and year
+annual_returns = data.frame(symbol = first_annual_close_price$symbol, year = first_annual_close_price$year, returns = returns)
+mean(returns) ; sd(returns)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+require(ggplot2)
+qplot(returns) # distribution of returns
+```
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+# select predictors. First remove redundant variables
+predictors = fund_sec %>% select(-c(Date.first.added, Address.of.Headquarters, CIK, GICS.Sub.Industry, GICS.Sector, Security,
+                                    SEC.filings, For.Year, X, Period.Ending))
+dim(predictors[,-c(1,77)])
+length(unique(predictors$Ticker.Symbol))
+```
+
+The annual returns for the 501 stocks provided in the dataset are normally distributed with a mean and standard deviation of $1.1446$ and $0.2871$ respectively. There are 75  features describing the fundamentals of 449 stocks, each for a couple of years, and add a new observation resulting in a total of 1782 observations. For each of the stocks, the change in the level of the features is obtained by subtracting the records presented for consecutive years. The annual change for each feature is obtained as a compounding factor for the feature using the formula $1+ \%\ annual\ change$ which can be expressed fully as:
+
+$$change_{ij}  = reported_{ij+1}-reported_{i,j} / reported_{i,j}  $$ 
+where $j$ represents the year for which the change is calculated and $i$ represents the stock being evaluated. Annual returns and and the transformed features are then merged into a single dataframe for evaluation of missing values. First, features that had more than $10\%$ of their records missing were removed completely from the dataset. With the remaining dataset, observations with a missing record for any feature were removed. The result is a clean dataframe with 43 fundamentals describing 274 companies in 756 observations.
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+# get changes from 1 year to another for all the features
+
+predictors_transformed = predictors[,-77] %>% group_by(Ticker.Symbol) %>% summarise(across(Accounts.Payable : Estimated.Shares.Outstanding, 
+                                                                    diff)) %>% ungroup()
+predictors_transformed = as.data.frame(predictors_transformed)
+corresponding_year = predictors[duplicated(predictors$Ticker.Symbol),] # readd year
+
+# get "starting point" for each  feature per period so that we can divide with the changes to get % change
+start_point = predictors[,-77] %>% group_by(Ticker.Symbol) %>% slice(-n()) %>% ungroup()
+
+# get 1 + % change for each feature per period. (change in feature at between year n and n+1 / feature at year n)
+predictors_transformed [,-1] = 1+(predictors_transformed[,-1] / start_point[,-1])
+predictors_transformed$year = corresponding_year$year
+```
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+# add the ticker returns to the dataframe
+
+predictors_transformed = merge.data.frame(predictors_transformed, annual_returns, by.x = c("Ticker.Symbol", "year"), 
+                                          by.y = c("symbol", "year"))
+predictors_transformed[sapply(predictors_transformed, is.infinite)] <- 0
+
+# find columns with too many missing values (more than 10%) and remove
+predictors_transformed = predictors_transformed[colMeans(is.na(predictors_transformed)) < 0.1]
+
+# remove missing values
+predictors_transformed = predictors_transformed[complete.cases(predictors_transformed),]
+```
+
+# Methods
+
+Correlation is a measure of the extent to which two variables are related. This is important in regression analysis since it influences the decision on which features are best used for prediction. The amount of variation in a response that is explained by the linear combination of predictive features is the R-squared value, whose square root gives the correlation coefficient between the response and the predictors. Features therefore that have a high correlation with the response are desired when fitting a regression line to the data. It is however possible to have features that are significantly correlated. This suggests that their relationship is significant and therefore cause confounding when both of them are used in the same model. Confounding is where the apparent relationship between the response and a feature is actually influenced by another feature in the model. Confounding is prevented by identifying features that have a high correlation, $R > 0.75$ and removing them from the list of predictors. 
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+## identify highly correlated predictors
+
+require(caret)
+
+data2 = predictors_transformed[,-c(1,2,46)]
+correlation_matrix = cor(data2)
+
+highly_correlated = findCorrelation(correlation_matrix, cutoff = abs(0.75))
+highly_correlated = colnames(correlation_matrix)[highly_correlated]
+```
+
+```{r, echo=FALSE, cache=TRUE, results='hide'}
+high_corr = correlation_matrix %>% as.data.frame() %>% select(Gross.Profit, Total.Liabilities...Equity, Total.Assets, Total.Revenue, Pre.Tax.Margin, Pre.Tax.ROE, Net.Income) %>% filter(Gross.Profit > 0.75|Total.Liabilities...Equity > 0.75| Total.Assets > 0.75| Total.Revenue > 0.75| Pre.Tax.Margin > 0.75| Pre.Tax.ROE> 0.75| Net.Income > 0.75)
+```
+
+We note that *Gross.Profit* is flagged to be removed due to its high correlation with the *Pre.Tax.ROE*. *Total.Liabilities...Equity* is highly correlated with both *Total.Liabilities* and *Total.Assets* and it is therefore removed. The same treatment is given to *Total.Assets* leaving only *Total.Liabilities* to be used in the model. *Total.Revenue* is correlated with the *Cost.of.Revenue* while *Pre.Tax.Margin* is correlated with the *Gross.Margin* and *Pre.Tax.ROE*. The *Pre.Tax.ROE* is also correlated with *Gross.Profit* and it is also removed. Finally, net income is removed for its high correlation with *Net.Income.Applicable.to.Common.Shareholders*.
+
+```{r,echo=FALSE, results='hide', cache=TRUE}
+# remove columns highly correlated to prevent confounding. 
+data3 = predictors_transformed %>% select(-c(one_of(highly_correlated)))
+```
+
+The industry in which a company operates is also evaluated to see if it results in a difference in the annual change in stock price. Below is the distribution of companies by sector for the entire set of companies available in the dataset. The consumer discretionary sector has the highest number of companies in the stock market while telecommunications has the smallest representation. Industries, information technology, financials and healthcare also have a significantly higher number of companies trading their stocks in the exchange compared to the other sectors.In general however, we may conclude that their is adequate representation of companies in each sector forr the analysis. 
+
+```{r, echo=FALSE, cache=TRUE}
+## Distribution of companies by GICS sectors/industry
+require(ggplot2)
+qplot(GICS.Sector, data = securities) + theme(axis.text.x = element_text(angle = 90)) + 
+  ylab("Frequency") + xlab("Sector") + ggtitle("Distribution of companies by GICS sectors")
+```
+
+# Results
+```{r, echo=FALSE, results='hide', cache=TRUE}
+industry = securities %>% select(Ticker.symbol, GICS.Sector)
+industry = distinct(industry)
+
+data3 = merge(data3, industry, by.x = "Ticker.Symbol", by.y = "Ticker.symbol",  all.y = FALSE )
+data3$GICS.Sector = as.factor(data3$GICS.Sector)
+
+# remove ticker and year since they are not used for predictions
+data3 = data3 %>% select(-c("year", "Ticker.Symbol"))
+
+# Mean and variance of returns by Industry
+return_by_industry = distinct(as.data.frame(data3 %>% group_by(GICS.Sector) %>% summarize(returns, mean = mean(returns), sd = sd(returns)))[,-2])
+return_by_industry = return_by_industry[with(return_by_industry, order(-mean, sd)),]
+```
+
+First the annual change in stock price is evaluated for differences between the sectors.
+
+```{r, echo=FALSE, cache=TRUE, results='hide'}
+return_by_industry
+```
+
+Companies in the financial industry had the highest average annual change in stock price growing by an average of $21.9\%$. This is followed by the Healthcare and Information technologies companies respectively. Companies operating within the telecommunications, energy and materials sectors had the lowest annual change in stock price with growth of less than $5\%$ each. Information technology and energy stocks were the riskiest while consumer staples and utilities were the least risky. The Kruskal-Wallis test for independence is used to evaluate whether the difference in average annual change in stock prices between the industries is significant.
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+# is there significant difference in returns by industry? Using Kruskal Wallis
+comparison = kruskal.test(data3$returns ~ data3$GICS.Sector)
+p_value = comparison$p.value # there is a significant difference. We use posthoc test to see which differ
+
+require(FSA)
+require(rcompanion)
+
+industry_diffs = dunnTest(data3$returns~ data3$GICS.Sector)
+by_sector = cldList(P.adj ~ Comparison, data = industry_diffs$res, threshold = 0.05) # groups sharing letter not significantly different
+```
+
+The test returns a p-value o `r p_value` which is $< 0.05$. This tells us that their is a significant difference in returns between the different sector. The sectors whose average annual change in stock prices are not significantly different are represented by the same letter.
+
+```{r, cache=TRUE, results='hide', echo=FALSE}
+as.data.frame(by_sector)
+```
+
+Annual changes in stock prices in the consumer discretionary and energy sectors are not significantly different. The healthcare sector has annual stock price changes that are significantly different from all the other sectors. The remaining $8$ sectors all have annual stock price changes that are not significantly different. Due to the significance in the differences, the sector a company operates in is included in the regression analysis. 
+
+```{r, echo=FALSE, results='hide', cache=TRUE}
+# fit linear model using all the features available
+model = lm(returns ~ ., data = data3)
+
+# identify the features that are significant based on pvalue of coefficient < 0.05
+significant_features = as.data.frame(summary(model)$coefficients[summary(model)$coefficients[,4] <= 0.05, ])
+```
+
+To select the best features from the other 43 features, a regression line is fit with the % annual change in stock price as the response and fundamentals whose parameters are found to be insignificant i.e $P-value > 0.05$ are removed. The following table shows the fundamentals whose parameters were found to be significant. These are the features that are selected and fitted to obtain the regression equation to estimate the annual change in stock prices.
+
+```{r, echo=FALSE, cache=TRUE}
+significant_features %>% select(`Pr(>|t|)`) # these are the best linear predictors
+```
+We note that the  model identifies 7 features, including the sector, as significant predictors of the change in stock prices. Since industry is a categorical predictor, a parameter is estimated for each of its levels resulting in the additional estimates as seen in the table above. The regression model is refitted with the significant fundamentals only. The parameter estimates and their corresponding statistics are shown.
+
+```{r, echo=FALSE, cache=TRUE, results='hide'}
+# select the significant features only
+data3 = data3 %>% select(c(Common.Stocks, Net.Cash.Flow.Operating, Operating.Margin, Other.Equity, 
+                           Other.Operating.Activities, Retained.Earnings, GICS.Sector, returns))
+```
+
+```{r, echo=FALSE, cache=TRUE, results='hide'}
+# refit
+model2 = lm(returns ~ . , data = data3)
+summary = summary(model2)
+as.data.frame(summary$coefficients)
+```
+The regression model fitted is a good representation of the relationship between the annual change in the selected fundamentals: common stock, net operating cashflow, operating margin, other equity, other operating activities, retained earnings and the industry: and the change in stock prices for the same period. An R-square value of $0.0995$ however shows low predictive power for the regression model since the fitted fundamentals only explain $9.95\%$ of the variation in annual changes in stock prices. 
+
+```{r, echo=FALSE, cache=TRUE}
+# predictions vs actual plot
+require(tidyverse)
+data = data.frame(x = 1:length(model2$fitted.values), fitted = model2$fitted.values, actual = data3$returns)
+data = data %>% gather(key = "variable", value = "value", -x)
+
+ggplot(data = data, aes(x = x, y = value)) + geom_point(aes(color = variable))
+```
+The scatter plot above gives shows the fitted values from the regression model alongside the actual values. The plot of the residuals shows no evidence of heteroscedasticity as they are well distributed along the 0 line for all the observations. This is more evidence to support that the model captures the relationship between the response and the predictors well.
+
+```{r, echo=FALSE, cache=TRUE}
+# residual plot 
+plot(model2$residuals, ylab = "Errors")
+```
+
+# Conclusion
+
+The analysis set out to investigate the significance of a linear relationship between predictors derived from the companies’ fundamentals with the change in stock price for the given company over the same period of time. The analysis finds that the annual changes in common stock, net operating cashflow, operating margin, other equity, other operating activities, retained earnings and the industry have a significant relationship with the changes in stock price and they are used to estimate the model parameters. The model is good at the identification of significant predictors but has a low predictive power suggesting that many other factors exist that may be used to explain the remaining variation in the stock price changes. The errors satisfy the normality assumption which is an important factor in determining whether a model is a good fit for the set of data. 
+The industry within which a company operates is identified to be significant in determining how prices change. This confirms the assumption set out earlier in the report that external factors that influence the change in prices tend to have a similar effect on companies within the same sector since these companies are likely to react the same when exposed to the same force. 
+
