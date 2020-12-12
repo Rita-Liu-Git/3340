@@ -3,7 +3,7 @@
 Group member:
 Yiwei Gan B00729142
 Rita Liu B00685263
-Hongyi Li B00705250
+Hongyi Li B00705256
 
 Running environment: R Markdown
 
